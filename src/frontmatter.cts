@@ -747,10 +747,12 @@ function escapeDoubleQuotedScalar(s: string): string {
  * (#1779): the empty string (bare `k:` reloads as null), an embedded `"`/`\`
  * or control char, a leading YAML indicator (quote, `&`/`*`/`!` anchor/alias/
  * tag, `|`/`>` block scalar, flow `[]{},`, `#`, reserved `%`/`@`/backtick, or
- * `-`/`?`/`:` before a space), or leading/trailing whitespace. This helper is
- * the correctness complement of `escapeDoubleQuotedScalar`: it broadens the *trigger*
- * for quoting without broadening the lossy object-list handling deferred to
- * #1572/#1660.
+ * `-`/`?`/`:` before a space), leading/trailing whitespace, or a numeric-
+ * looking value (#4053: unquoted `22.1` / `22.10` collide as floats; `22.0`
+ * collapses to `22`). This helper is the correctness complement of
+ * `escapeDoubleQuotedScalar`: it broadens the *trigger* for quoting without
+ * broadening the lossy object-list handling deferred to #1572/#1660. Free-
+ * text that is not numeric-looking stays unquoted.
  */
 function scalarNeedsDoubleQuoting(s: string): boolean {
   if (s === '') return true;
@@ -771,6 +773,10 @@ function scalarNeedsDoubleQuoting(s: string): boolean {
   // escapeDoubleQuotedScalar path (which already emits the \uD800 escape) fixes the
   // round-trip.
   if (/[\uD800-\uDFFF]/.test(s)) return true;
+  // #4053: quote numeric-looking scalars so identifier fields (current_phase)
+  // round-trip as strings. Same regex agentScalarNeedsDoubleQuoting already
+  // uses; reconstructFrontmatter previously skipped this check.
+  if (YAML_NUMERIC_RE.test(s)) return true;
   return false;
 }
 
@@ -1343,12 +1349,24 @@ function noOpObjectListSetError(originalContent: string, newContent: string, par
  *
  * This is the general form of the same "cannot faithfully round-trip" contract: a field is
  * lossy exactly when regenerating its OWN already-parsed value fails to reproduce its own raw
- * source text byte-for-byte (proof, not a guess, that this key's original shape does not
- * survive parse → reconstruct). When that is true AND the caller is genuinely changing the
- * field (not merely re-supplying an equal value, which `frontmatterDeepEqual` already lets
+ * source text (#4053: byte-for-byte, except quoting a numeric-looking scalar — that quoting
+ * is type-preserving, not flattening). When that is true AND the caller is genuinely changing
+ * the field (not merely re-supplying an equal value, which `frontmatterDeepEqual` already lets
  * through), the set is refused — matching `regenerateFrontmatterKey`'s own fail-closed
  * philosophy for the mirror-image case (new value carries a nested object outright).
  */
+function stripNumericScalarQuotes(yaml: string): string {
+  // `reconstructFrontmatter` now quotes YAML_NUMERIC_RE scalars (#4053). The #1660
+  // guard compared regenerated text to the original raw; `current_phase: 22.1`
+  // vs `current_phase: "22.1"` is not object-list data loss. Nested flattening
+  // still differs after this strip.
+  return yaml.replace(
+    /(^|\n)([ \t]*(?:[A-Za-z0-9_-]+:[ \t]*|-[ \t]*))"([^"]*)"/g,
+    (full, nl: string, prefix: string, val: string) =>
+      YAML_NUMERIC_RE.test(val) ? `${nl}${prefix}${val}` : full,
+  );
+}
+
 function objectListFieldWouldLoseData(content: string, field: string, newValue: unknown): string | null {
   // A NEW value that itself carries a live nested object (rather than an already-flattened
   // string) is the mirror-image case `regenerateFrontmatterKey` already refuses on its own
@@ -1375,7 +1393,11 @@ function objectListFieldWouldLoseData(content: string, field: string, newValue: 
       `(e.g. must_haves.artifacts) the frontmatter writer cannot faithfully represent, and this change ` +
       `would silently discard data. Edit the file directly instead of using frontmatter set/merge.`;
   }
-  if (regeneratedOriginal.trim() === original.raw.trim()) return null;
+  const regenerated = regeneratedOriginal.trim();
+  const originalRaw = original.raw.trim();
+  if (regenerated === originalRaw) return null;
+  // #4053: quoting a numeric-looking identifier is type-preserving, not lossy.
+  if (stripNumericScalarQuotes(regenerated) === stripNumericScalarQuotes(originalRaw)) return null;
 
   return `frontmatter set refused — the existing "${field}" field cannot be faithfully round-tripped by ` +
     `the frontmatter writer (its structure would be flattened and data, such as a nested object-list ` +
@@ -1467,6 +1489,7 @@ export = {
   spliceFrontmatter,
   stripFrontmatter,
   noOpObjectListSetError,
+  objectListFieldWouldLoseData,
   parseMustHavesBlock,
   FRONTMATTER_SCHEMAS,
   cmdFrontmatterGet,

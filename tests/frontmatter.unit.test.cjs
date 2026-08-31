@@ -23,6 +23,7 @@ const {
   spliceFrontmatter,
   stripFrontmatter,
   noOpObjectListSetError,
+  objectListFieldWouldLoseData,
   parseMustHavesBlock,
   FRONTMATTER_SCHEMAS,
   agentScalarNeedsDoubleQuoting,
@@ -330,8 +331,8 @@ describe('reconstructFrontmatter: scalar values', () => {
     assert.equal(reconstructFrontmatter({ title: 'Hello' }), 'title: Hello');
   });
 
-  test('numeric string value', () => {
-    assert.equal(reconstructFrontmatter({ count: '42' }), 'count: 42');
+  test('numeric string value is quoted so it round-trips as a string (#4053)', () => {
+    assert.equal(reconstructFrontmatter({ count: '42' }), 'count: "42"');
   });
 
   test('boolean string value', () => {
@@ -436,7 +437,7 @@ describe('reconstructFrontmatter: nested objects', () => {
   test('simple nested object', () => {
     assert.equal(
       reconstructFrontmatter({ meta: { key: 'val', num: '42' } }),
-      'meta:\n  key: val\n  num: 42'
+      'meta:\n  key: val\n  num: "42"'
     );
   });
 
@@ -1011,8 +1012,8 @@ describe('spliceFrontmatter: per-key preservation + fail-closed (#1572)', () => 
     const out = spliceFrontmatter(PLAN, parsed);
     // must_haves.artifacts raw preserved verbatim (provides intact) — NOT regenerated.
     assert.deepEqual(parseMustHavesBlock(out, 'artifacts'), [{ path: 'src/foo.ts', provides: 'the foo' }]);
-    // the changed scalar WAS regenerated.
-    assert.ok(/^wave: 2$/m.test(out), 'changed scalar wave must be regenerated to 2');
+    // the changed scalar WAS regenerated. Numeric-looking values are quoted (#4053).
+    assert.ok(/^wave: "2"$/m.test(out), 'changed scalar wave must be regenerated to 2');
     // original ordering preserved (phase before wave before must_haves).
     const phaseIdx = out.indexOf('phase:');
     const waveIdx = out.indexOf('wave:');
@@ -1022,7 +1023,7 @@ describe('spliceFrontmatter: per-key preservation + fail-closed (#1572)', () => 
 
   test('a changed scalar regenerates only that key (no other key touched)', () => {
     const out = spliceFrontmatter(PLAN, { ...extractFrontmatter(PLAN), phase: '9' });
-    assert.ok(/^phase: 9$/m.test(out));
+    assert.ok(/^phase: "9"$/m.test(out));
     // wave unchanged → still 1
     assert.ok(/^wave: 1$/m.test(out));
   });
@@ -1047,7 +1048,7 @@ describe('spliceFrontmatter: per-key preservation + fail-closed (#1572)', () => 
     // The indented artifacts block must be preserved as part of must_haves (not split off),
     // and b regenerated. proves the slicer grouped the nested lines under must_haves.
     assert.deepEqual(parseMustHavesBlock(out, 'artifacts'), [{ path: 'x', provides: 'y' }]);
-    assert.ok(/^b: 3$/m.test(out));
+    assert.ok(/^b: "3"$/m.test(out));
     assert.ok(/^a: 1$/m.test(out));
   });
 
@@ -1251,6 +1252,46 @@ describe('reconstructFrontmatter: strict-YAML round-trip (#1779)', () => {
   });
 });
 
+// #4053 — reconstructFrontmatter quoted scalars only when YAML syntax required
+// it to stay parseable. A decimal phase identifier (`22.1`, `22.10`) parses
+// fine unquoted, but a YAML 1.1/core loader resolves it as a float, so the two
+// identifiers collide and `22.0` collapses to `22`. extractFrontmatter hides
+// this because it uses FAILSAFE_SCHEMA (everything is a string); these tests
+// go through reconstructFrontmatter and then js-yaml's default schema, the
+// class of loader that actually loses the type.
+describe('reconstructFrontmatter: numeric-looking scalars stay strings (#4053)', () => {
+  test('#4053: current_phase "22.1" is emitted quoted', () => {
+    assert.equal(reconstructFrontmatter({ current_phase: '22.1' }), 'current_phase: "22.1"');
+  });
+
+  test('#4053: current_phase "22.10" is emitted quoted', () => {
+    assert.equal(reconstructFrontmatter({ current_phase: '22.10' }), 'current_phase: "22.10"');
+  });
+
+  test('#4053: "22.1" and "22.10" remain distinct strings after a strict YAML round-trip', () => {
+    const a = yaml.load(reconstructFrontmatter({ current_phase: '22.1' }));
+    const b = yaml.load(reconstructFrontmatter({ current_phase: '22.10' }));
+    assert.equal(typeof a.current_phase, 'string');
+    assert.equal(typeof b.current_phase, 'string');
+    assert.equal(a.current_phase, '22.1');
+    assert.equal(b.current_phase, '22.10');
+    assert.notEqual(a.current_phase, b.current_phase);
+  });
+
+  test('#4053: trailing-zero identifier "22.0" does not collapse to 22', () => {
+    const loaded = yaml.load(reconstructFrontmatter({ current_phase: '22.0' }));
+    assert.equal(typeof loaded.current_phase, 'string');
+    assert.equal(loaded.current_phase, '22.0');
+  });
+
+  test('#4053: free-text with no YAML-special characters stays unquoted', () => {
+    assert.equal(
+      reconstructFrontmatter({ last_activity_desc: 'Reproduction run' }),
+      'last_activity_desc: Reproduction run',
+    );
+  });
+});
+
 // #3497 — escape amplification. `escapeDoubleQuotedScalar` escapes `\`/`"`/control
 // chars on every serialize (#1779), but `parseGuardedYamlRegion` only stripped the
 // outer quote delimiters and never un-escaped the interior, so parse ∘ serialize
@@ -1336,10 +1377,10 @@ describe('frontmatter round-trip: escape amplification (#3497)', () => {
     assert.equal(extractFrontmatter(content).desc, 'he said "hi"');
   });
 
-  test('plain scalars that never need quoting still round-trip unquoted and unchanged', () => {
+  test('plain non-numeric scalars stay unquoted; numeric-looking scalars are quoted (#4053)', () => {
     const obj = { name: 'simple-value', wave: 'W1', count: '42' };
     const serialized = reconstructFrontmatter(obj);
-    assert.equal(serialized, 'name: simple-value\nwave: W1\ncount: 42');
+    assert.equal(serialized, 'name: simple-value\nwave: W1\ncount: "42"');
     assert.deepEqual(extractFrontmatter(`---\n${serialized}\n---\n`), obj);
   });
 
@@ -1456,6 +1497,37 @@ describe('noOpObjectListSetError (#1660)', () => {
     assert.ok(msg.includes('had no effect'), msg);
     assert.ok(msg.includes('object-list'), msg);
     assert.ok(msg.includes('Edit the file directly'), msg);
+  });
+});
+
+// objectListFieldWouldLoseData (#1660/#4053) — the set CLI's pre-write guard.
+// #4053 quotes numeric-looking scalars; that quoting must not look like the
+// object-list flattening this helper exists to refuse.
+describe('objectListFieldWouldLoseData (#1660/#4053)', () => {
+  test('#4053: unquoted current_phase 22.1 → 22.10 is not treated as data loss', () => {
+    const content = '---\ncurrent_phase: 22.1\nlast_activity_desc: Reproduction run\n---\n';
+    assert.equal(objectListFieldWouldLoseData(content, 'current_phase', '22.10'), null);
+  });
+
+  test('#4053: already-quoted current_phase 22.1 → 22.10 is not treated as data loss', () => {
+    const content = '---\ncurrent_phase: "22.1"\n---\n';
+    assert.equal(objectListFieldWouldLoseData(content, 'current_phase', '22.10'), null);
+  });
+
+  test('#4053: unquoted integer wave 1 → 2 is not treated as data loss', () => {
+    const content = '---\nphase: 1\nwave: 1\n---\n';
+    assert.equal(objectListFieldWouldLoseData(content, 'wave', '2'), null);
+  });
+
+  test('must_haves object-list change still fails closed', () => {
+    const content = [
+      '---', 'must_haves:', '  artifacts:',
+      '    - path: src/foo.ts', '      provides: the foo',
+      '---', '',
+    ].join('\n');
+    const msg = objectListFieldWouldLoseData(content, 'must_haves', { artifacts: ['path: src/foo.ts'] });
+    assert.equal(typeof msg, 'string');
+    assert.ok(/round-trip|object-list|discard/i.test(msg), msg);
   });
 });
 

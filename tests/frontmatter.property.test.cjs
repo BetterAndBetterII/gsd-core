@@ -272,10 +272,11 @@ describe('frontmatter: prohibitions parse ↔ splice bijection (#644)', () => {
 // excluded here, not silently passed:
 //   - lone UTF-16 surrogates (lossy through UTF-8 encoding) — filtered via
 //     fc.pre(s.isWellFormed());
-//   - numeric/boolean/null-looking BARE strings (e.g. "42", "true", "-5") that a
-//     YAML loader resolves to a non-string type — a separate pre-existing bug
-//     class (valid YAML, wrong type), so we assert equality only when the value
-//     loads back AS a string. An escaping defect (invalid YAML) still fails
+//   - boolean/null-looking BARE strings (e.g. "true", "null") and signed
+//     numeric forms (e.g. "-5") that a YAML loader still resolves to a
+//     non-string type. Numeric-looking unsigned forms (e.g. "42", "22.10")
+//     are quoted since #4053. We assert equality only when the value loads
+//     back AS a string. An escaping defect (invalid YAML) still fails
 //     loudly because yaml.load() throws.
 describe('frontmatter: reconstructFrontmatter strict-YAML property (#1779)', () => {
   test('property: every string value serializes to valid YAML and string-round-trips', () => {

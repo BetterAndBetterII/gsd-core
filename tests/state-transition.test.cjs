@@ -1174,14 +1174,14 @@ describe('ADR-1769 Phase 4: milestoneSwitch transition — milestone reset', () 
   test('frontmatter status resets to planning and progress resets to zero', () => {
     const result = transitionCore(milestoneBody(), { kind: 'milestoneSwitch', version: 'v2.0', name: 'New Milestone' }, deps);
     assert.strictEqual(result.content.split('\n').find((l) => /^status:/.test(l)), 'status: planning');
-    assert.ok(/total_phases:\s*0/.test(result.content), 'total_phases should reset to 0');
-    assert.ok(/completed_phases:\s*0/.test(result.content), 'completed_phases should reset to 0');
-    assert.ok(/percent:\s*0/.test(result.content), 'percent should reset to 0');
+    assert.ok(/total_phases:\s*"0"/.test(result.content), 'total_phases should reset to 0');
+    assert.ok(/completed_phases:\s*"0"/.test(result.content), 'completed_phases should reset to 0');
+    assert.ok(/percent:\s*"0"/.test(result.content), 'percent should reset to 0');
   });
 
   test('gsd_state_version is preserved across the reset', () => {
     const result = transitionCore(milestoneBody(), { kind: 'milestoneSwitch', version: 'v2.0', name: 'New Milestone' }, deps);
-    assert.ok(/gsd_state_version:\s*1\.0/.test(result.content), 'gsd_state_version must be preserved');
+    assert.ok(/gsd_state_version:\s*"1\.0"/.test(result.content), 'gsd_state_version must be preserved');
   });
 
   test('Current Position section is reset to "Not started (defining requirements)"', () => {
@@ -1548,12 +1548,15 @@ describe('ADR-3408 §8.3(b) Matrix D: patchCore strips frontmatter first (#3469)
   test('D7b: the #3699 repair path is the ONLY way frontmatter is written, and it never text-replaces over YAML', () => {
     // Body source absent — the case-D repair shape. The write is permitted here,
     // and `updated` is the field name rather than `false`.
-    const input = ['---', 'current_phase: "3"', '---', '', '# State', '', '**Status:** Planning', ''].join('\n');
+    // Single-quoted input: a text splice of 3→9 would keep single quotes
+    // (`current_phase: '9'`). reconstructFrontmatter emits double quotes
+    // (#4053), which is how we still prove the parsed-object route.
+    const input = ['---', "current_phase: '3'", '---', '', '# State', '', '**Status:** Planning', ''].join('\n');
     const result = transitionCore(input, { kind: 'update', field: 'current_phase', value: '9' }, deps);
 
     assert.strictEqual(result.data && result.data.updated, true);
     assert.strictEqual(result.data && result.data.wroteFrontmatter, true, 'the repair path must announce itself');
-    assert.ok(/^current_phase: 9$/m.test(result.content), 'the frontmatter key carries the new value');
+    assert.ok(/^current_phase: "9"$/m.test(result.content), 'the frontmatter key carries the new value, quoted (#4053)');
 
     // ADR-3408 §8.3(b) still holds: the body is untouched and the frontmatter
     // block was REBUILT from the parsed object, not text-patched in place. A
@@ -1561,7 +1564,7 @@ describe('ADR-3408 §8.3(b) Matrix D: patchCore strips frontmatter first (#3469)
     // of the document's frontmatter formatting alone; re-serialisation is what
     // proves the parsed-object route was taken.
     assert.ok(result.content.includes('**Status:** Planning'), 'the body must be untouched');
-    assert.ok(!/current_phase: "9"/.test(result.content), 'the value went through the YAML serialiser, not a text splice');
+    assert.ok(!/current_phase: '9'/.test(result.content), 'the value went through the YAML serialiser, not a text splice');
   });
 });
 

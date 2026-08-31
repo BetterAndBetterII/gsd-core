@@ -18,6 +18,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const yaml = require('js-yaml');
 const { runNode } = require('./helpers/process-seam.cjs');
 const { toLegacyResult } = require('./helpers/git-fixture.cjs');
 const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
@@ -140,6 +141,53 @@ describe('frontmatter set', () => {
     const content = fs.readFileSync(file, 'utf-8');
     assert.ok(content.includes('# My Heading'), 'heading should be preserved');
     assert.ok(content.includes('Some paragraph with special chars: $, %, &.'), 'body content should be preserved');
+  });
+});
+
+// #4053 — reconstructFrontmatter quotes numeric-looking identifiers so they
+// round-trip as strings (`22.1` vs `22.10`). The set CLI's #1660 lossy-round-trip
+// guard compared regenerated YAML to the original raw byte-for-byte, so quoting
+// `current_phase: 22.1` as `current_phase: "22.1"` looked like data loss and the
+// write was refused. Quoting is type-preserving, not flattening: set must still
+// write, and free-text that is not numeric-looking must stay unquoted.
+describe('Bug #4053: frontmatter set of a numeric-looking identifier is not refused as lossy', () => {
+  test('set current_phase from unquoted 22.1 to 22.10 writes a quoted string and does not refuse', () => {
+    const file = writeTempFile(
+      '---\ncurrent_phase: 22.1\nlast_activity_desc: Reproduction run\n---\n# body\n',
+    );
+    const result = runGsdTools([
+      'frontmatter', 'set', file,
+      '--field', 'current_phase',
+      '--value', '"22.10"',
+    ]);
+    const parsed = JSON.parse(result.output);
+    assert.ok(!parsed.error, `set must not refuse quoting as lossy; got ${result.output}`);
+    assert.equal(parsed.updated, true);
+
+    const after = fs.readFileSync(file, 'utf-8');
+    assert.match(after, /^current_phase: "22\.10"$/m);
+    assert.match(after, /^last_activity_desc: Reproduction run$/m, 'free-text must stay unquoted');
+
+    const loaded = yaml.load(after.split('---')[1]);
+    assert.equal(typeof loaded.current_phase, 'string');
+    assert.equal(loaded.current_phase, '22.10');
+    assert.notEqual(loaded.current_phase, yaml.load('current_phase: 22.1').current_phase);
+  });
+
+  test('set current_phase to trailing-zero 22.0 does not collapse to 22 and is not refused', () => {
+    const file = writeTempFile('---\ncurrent_phase: 22.1\n---\n');
+    const result = runGsdTools([
+      'frontmatter', 'set', file,
+      '--field', 'current_phase',
+      '--value', '"22.0"',
+    ]);
+    const parsed = JSON.parse(result.output);
+    assert.ok(!parsed.error, `set must not refuse quoting as lossy; got ${result.output}`);
+    const after = fs.readFileSync(file, 'utf-8');
+    assert.match(after, /^current_phase: "22\.0"$/m);
+    const loaded = yaml.load(after.split('---')[1]);
+    assert.equal(typeof loaded.current_phase, 'string');
+    assert.equal(loaded.current_phase, '22.0');
   });
 });
 

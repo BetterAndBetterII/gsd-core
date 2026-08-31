@@ -3742,7 +3742,7 @@ Plans:
     assert.ok(bodyMatch, 'body must have Total Phases field after remove');
     assert.strictEqual(bodyMatch[1], '1', `body 'Total Phases:' must be 1 after removing one of 2 phases; got ${bodyMatch[1]}`);
     // Frontmatter progress.total_phases must agree.
-    const fmMatch = afterState.match(/total_phases:\s*(\d+)/);
+    const fmMatch = afterState.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(fmMatch, 'frontmatter must have total_phases');
     assert.strictEqual(fmMatch[1], '1', `frontmatter progress.total_phases must be 1; got ${fmMatch[1]}`);
   });
@@ -3762,14 +3762,14 @@ Plans:
     );
 
     const beforeState = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
-    const beforeMatch = beforeState.match(/total_phases:\s*(\d+)/);
+    const beforeMatch = beforeState.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(beforeMatch && beforeMatch[1] === '3', 'precondition: total_phases should be 3');
 
     const result = runGsdTools('phase remove 2', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const afterState = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
-    const afterMatch = afterState.match(/total_phases:\s*(\d+)/);
+    const afterMatch = afterState.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(afterMatch, `STATE.md frontmatter must still have total_phases after remove; got:\n${afterState}`);
     // Must be exactly 2 — 3 phases minus 1 removed. Asserting the exact value
     // catches a wrong count (not just "not 3").
@@ -4684,7 +4684,7 @@ describe('phase complete command', () => {
       !/Milestone complete|All phases complete/i.test(state),
       'a mid-milestone phase must not flip STATE.md to milestone-complete (#1752)',
     );
-    const tpMatch = state.match(/total_phases:\s*(\d+)/);
+    const tpMatch = state.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(tpMatch, 'STATE.md must carry a total_phases value after phase.complete');
     assert.notStrictEqual(
       parseInt(tpMatch[1], 10),
@@ -12649,7 +12649,7 @@ describe('bug #3572: phase remove must not corrupt STATE.md into two frontmatter
     // the only directory); the frontmatter progress block derives from ROADMAP
     // (2 below) — the two counters have different provenance by design (#2640/#2528).
     assert.match(after, /^Total Phases:\s*0$/m, 'body field = remaining on-disk phase directories');
-    const fm = after.match(/total_phases:\s*(\d+)/);
+    const fm = after.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(fm, 'frontmatter progress.total_phases present');
     assert.strictEqual(fm[1], '2', `total_phases must resync to the 2 remaining roadmap phases; got ${fm[1]}`);
   });

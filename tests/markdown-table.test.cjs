@@ -597,7 +597,7 @@ describe('CLI: quick-tasks-append (#3356)', () => {
     assert.ok(r.success, `quick-tasks-append should succeed: ${r.error}`);
 
     const stateContent = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf8');
-    const match = stateContent.match(/total_phases:\s*(\d+)/);
+    const match = stateContent.match(/total_phases:\s*"?(\d+)"?/);
     assert.equal(
       match && match[1], '25',
       `a body-only Quick Tasks append must not re-derive progress.total_phases from disk; ` +

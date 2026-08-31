@@ -395,7 +395,7 @@ describe('#2828 — total_phases uses the roadmap count on a flat unmilestoned r
       if (inProgress) {
         // A new top-level (column-0) key ends the progress block.
         if (/^\S/.test(line)) { inProgress = false; continue; }
-        const tp = line.match(/^\s+total_phases:\s*(\d+)/);
+        const tp = line.match(/^\s+total_phases:\s*"?(\d+)"?/);
         if (tp) { totalPhases = Number(tp[1]); break; }
       }
     }
@@ -1486,7 +1486,7 @@ describe('#3573 total_phases — roadmap absent with an asserted milestone', () 
   /** Read the PERSISTED progress.total_phases straight out of STATE.md (the corruption is a file write, not a read derivation). */
   function persistedTotalPhases(dir) {
     const raw = fs.readFileSync(path.join(dir, '.planning', 'STATE.md'), 'utf8');
-    const m = raw.match(/^\s{2}total_phases:\s*(\d+)\s*$/m);
+    const m = raw.match(/^\s{2}total_phases:\s*"?(\d+)"?\s*$/m);
     return m ? Number(m[1]) : null;
   }
 

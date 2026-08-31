@@ -311,9 +311,10 @@ describe('reconstructFrontmatter', () => {
       reconstructed.includes('# NOTE: current_phase is hand-maintained here'),
       `comment should survive reconstruct; got:\n${reconstructed}`,
     );
-    // data identity preserved alongside the comment.
-    assert.ok(reconstructed.includes('gsd_state_version: 1.0'));
-    assert.ok(reconstructed.includes('current_phase: 3'));
+    // data identity preserved alongside the comment. Numeric-looking
+    // identifiers are quoted (#4053) so they round-trip as strings.
+    assert.ok(reconstructed.includes('gsd_state_version: "1.0"'));
+    assert.ok(reconstructed.includes('current_phase: "3"'));
     assert.ok(reconstructed.includes('status: executing'));
     // the reconstructed output re-parses to the same data (idempotent round-trip).
     const reextracted = extractFrontmatter(`---\n${reconstructed}\n---`);
@@ -334,7 +335,7 @@ describe('reconstructFrontmatter', () => {
     const reconstructed = reconstructFrontmatter(extracted);
     assert.ok(reconstructed.includes('# first note') && reconstructed.includes('# second note'),
       `consecutive comments lost:\n${reconstructed}`);
-    const aIdx = reconstructed.indexOf('a: 1');
+    const aIdx = reconstructed.indexOf('a: "1"');
     const firstIdx = reconstructed.indexOf('# first note');
     const secondIdx = reconstructed.indexOf('# second note');
     assert.ok(aIdx < firstIdx && firstIdx < secondIdx, `order wrong (a:${aIdx} first:${firstIdx} second:${secondIdx})`);

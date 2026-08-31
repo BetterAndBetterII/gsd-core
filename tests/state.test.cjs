@@ -857,8 +857,8 @@ describe('STATE.md frontmatter sync', () => {
 
     const content = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
     assert.ok(content.startsWith('---\n'), 'should start with frontmatter delimiter');
-    assert.ok(content.includes('gsd_state_version: 1.0'), 'should have version field');
-    assert.ok(content.includes('current_phase: 02'), 'frontmatter should have current phase');
+    assert.ok(content.includes('gsd_state_version: "1.0"'), 'should have version field');
+    assert.ok(content.includes('current_phase: "02"'), 'frontmatter should have current phase');
     assert.ok(content.includes('**Current Phase:** 02'), 'body field should be preserved');
     assert.ok(content.includes('**Status:** Executing Plan 1'), 'updated field in body');
   });
@@ -935,8 +935,8 @@ describe('STATE.md frontmatter sync', () => {
 
     // The persisted frontmatter must not have rewound to the archive phase.
     const written = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
-    assert.ok(/current_phase:\s*22\b/m.test(written), 'written frontmatter current_phase must be 22 (not the archive 19)');
-    assert.ok(!/^current_phase:\s*19\b/m.test(written), 'written frontmatter must NOT carry the archive phase 19');
+    assert.ok(/current_phase:\s*"22"/m.test(written), 'written frontmatter current_phase must be 22 (not the archive 19)');
+    assert.ok(!/^current_phase:\s*"?19"?\b/m.test(written), 'written frontmatter must NOT carry the archive phase 19');
 
     // And a fresh read must agree.
     const readResult = runGsdTools('state-snapshot', tmpDir);
@@ -2316,7 +2316,7 @@ describe('cmdStateUpdateProgress (state update-progress)', () => {
     assert.ok(progressField && progressField.includes('(1/2 plans complete)'),
       'descriptive suffix must survive on the extracted Progress field');
     // The frontmatter block is intact (not mangled by the old \s*-crosses-newline match).
-    assert.ok(updated.includes('total_phases: 1'), 'frontmatter total_phases key must survive');
+    assert.ok(/total_phases:\s*"1"/.test(updated), 'frontmatter total_phases key must survive');
     assert.ok(updated.includes('percent:'), 'frontmatter percent key must survive');
   });
 
@@ -6966,9 +6966,9 @@ describe('ADR-3408 §8.5 Matrix (#3471): stale-but-present, and the report resid
       }), tmp);
 
       const expected = [
-        '---', 'gsd_state_version: 1.0', 'status: unknown', 'last_updated: "2023-11-14T22:13:20.000Z"',
+        '---', 'gsd_state_version: "1.0"', 'status: unknown', 'last_updated: "2023-11-14T22:13:20.000Z"',
         'stopped_at: Phase 5, curated stop', 'paused_at: Phase 5, curated pause',
-        'current_phase: 5', 'current_phase_name: Curated Name', 'current_plan: 05-02-plan',
+        'current_phase: "5"', 'current_phase_name: Curated Name', 'current_plan: 05-02-plan',
         'last_activity_desc: curated activity desc',
         '---', '', '# Project State', '', '## Current Position', '', '## Session', '',
       ].join('\n');
@@ -11219,9 +11219,9 @@ describe('state milestone-switch (#2630)', () => {
     );
     assert.match(after, /^status:\s*planning\s*$/m, 'status not reset to planning');
     // Progress counters reset to zero.
-    assert.match(after, /^\s*completed_phases:\s*0\s*$/m, 'completed_phases not reset');
-    assert.match(after, /^\s*completed_plans:\s*0\s*$/m, 'completed_plans not reset');
-    assert.match(after, /^\s*percent:\s*0\s*$/m, 'percent not reset');
+    assert.match(after, /^\s*completed_phases:\s*"0"\s*$/m, 'completed_phases not reset');
+    assert.match(after, /^\s*completed_plans:\s*"0"\s*$/m, 'completed_plans not reset');
+    assert.match(after, /^\s*percent:\s*"0"\s*$/m, 'percent not reset');
 
     // Body Current Position reset to the new-milestone template.
     assert.match(after, /Status:\s*Defining requirements/, 'body Status not reset');
@@ -12686,7 +12686,7 @@ describe('#905: syncStateFrontmatter preserves scalars when body annotations are
       );
       // percent: 38 should survive (no disk scan to overwrite it)
       assert.ok(
-        written.includes('percent: 38'),
+        /percent:\s*"?38"?/.test(written),
         `progress.percent: 38 must survive syncStateFrontmatter when no phases dir exists (raw: ${rawFm.progress})`,
       );
     } finally {
@@ -15041,7 +15041,7 @@ describe('buildStateFrontmatter cache invalidation (#1967)', () => {
 
     const fm = fmMatch[1];
     // Should show 2 total phases (the new disk state), not 1 (stale cache)
-    const totalPhasesMatch = fm.match(/total_phases:\s*(\d+)/);
+    const totalPhasesMatch = fm.match(/total_phases:\s*"?(\d+)"?/);
     assert.ok(totalPhasesMatch, 'frontmatter should contain total_phases');
     assert.strictEqual(
       parseInt(totalPhasesMatch[1], 10),
@@ -15050,7 +15050,7 @@ describe('buildStateFrontmatter cache invalidation (#1967)', () => {
     );
 
     // Should show 1 completed phase (phase 2 has SUMMARY)
-    const completedMatch = fm.match(/completed_phases:\s*(\d+)/);
+    const completedMatch = fm.match(/completed_phases:\s*"?(\d+)"?/);
     assert.ok(completedMatch, 'frontmatter should contain completed_phases');
     assert.strictEqual(
       parseInt(completedMatch[1], 10),

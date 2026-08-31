@@ -67,7 +67,7 @@ function readTotalPlans(statePath) {
   // eslint-disable-next-line local/no-unbounded-quantifier -- parses STATE.md this test just wrote via a fixture, fixed-size test-controlled content
   const fmMatch = written.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   assert.ok(fmMatch, 'STATE.md must have a frontmatter block after writeStateMd');
-  const m = fmMatch[1].match(/total_plans:\s*(\d+)/);
+  const m = fmMatch[1].match(/total_plans:\s*"?(\d+)"?/);
   assert.ok(m, 'frontmatter must carry a progress.total_plans line');
   return parseInt(m[1], 10);
 }
