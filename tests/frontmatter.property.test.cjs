@@ -16,6 +16,9 @@
  *   (f) prohibitions bijection (#644): over a generated must_haves.prohibitions block,
  *       parseMustHavesBlock(spliceFrontmatter(doc, parseFrontmatter(doc)), 'prohibitions')
  *       deepEquals the original parse — the new parse ↔ splice path is identity-preserving.
+ *   (g) numeric-looking scalar bijection (#4053): yaml.load(reconstructFrontmatter({k:s})).k === s
+ *       (typeof string) over integers, decimals, and leading-zero forms; distinct spellings
+ *       never collide after a strict-YAML round-trip.
  */
 
 const { describe, test } = require('node:test');
@@ -38,6 +41,31 @@ const yamlKey = fc.stringMatching(/^[a-z][a-z0-9_]{0,19}$/);
 
 // Simple YAML scalar value: printable ASCII without : ' " # newlines
 const yamlScalarValue = fc.stringMatching(/^[a-zA-Z0-9 ._/-]{1,40}$/);
+
+// #4053 — dedicated numeric-looking identifier arbitrary. The generic #1779
+// property draws `fc.string({maxLength:200})`, which rarely emits multi-digit
+// decimals or leading-zero forms (`22.10`, `022`) that this bug hinges on.
+// These shapes all match YAML_NUMERIC_RE (unsigned decimal / integer).
+const numericInteger = fc.nat({ max: 10_000 }).map(String);
+const numericLeadingZeroInteger = fc.tuple(
+  fc.integer({ min: 1, max: 4 }),
+  fc.nat({ max: 999 }),
+).map(([zeros, n]) => `${'0'.repeat(zeros)}${n}`);
+const numericDecimal = fc.tuple(
+  fc.nat({ max: 10_000 }),
+  fc.nat({ max: 10_000 }),
+).map(([a, b]) => `${a}.${b}`);
+const numericLeadingZeroDecimal = fc.tuple(
+  fc.integer({ min: 1, max: 3 }),
+  fc.nat({ max: 99 }),
+  fc.nat({ max: 999 }),
+).map(([zeros, a, b]) => `${'0'.repeat(zeros)}${a}.${b}`);
+const numericLookingScalar = fc.oneof(
+  numericInteger,
+  numericLeadingZeroInteger,
+  numericDecimal,
+  numericLeadingZeroDecimal,
+);
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -295,7 +323,42 @@ describe('frontmatter: reconstructFrontmatter strict-YAML property (#1779)', () 
   });
 });
 
-// (g)(h) #1882 added an optional `sourcePath` argument to extractFrontmatter, used only to
+// #4053 — dedicated numeric-scalar bijection. RULESET.TESTS requires a
+// fast-check property for parsers/bijective contracts; the hand-picked
+// 22.1/22.10/22.0/42 examples in frontmatter.unit.test.cjs do not generate
+// the integer/decimal/leading-zero domain. Asserts through js-yaml's default
+// schema (the loader that actually collapses unquoted numerics), not FAILSAFE.
+describe('frontmatter: numeric-looking scalar bijection (#4053)', () => {
+  test('property: numeric-looking scalars round-trip as the same string through strict YAML', () => {
+    fc.assert(
+      fc.property(numericLookingScalar, (s) => {
+        const loaded = yaml.load(reconstructFrontmatter({ k: s }));
+        assert.equal(typeof loaded.k, 'string',
+          `numeric-looking scalar loaded as ${typeof loaded.k}: ${JSON.stringify(s)} -> ${JSON.stringify(loaded.k)}`);
+        assert.equal(loaded.k, s,
+          `numeric-looking scalar did not round-trip: ${JSON.stringify(s)} -> ${JSON.stringify(loaded.k)}`);
+      }),
+    );
+  });
+
+  test('property: distinct numeric-looking scalars never collide after a strict YAML round-trip', () => {
+    fc.assert(
+      fc.property(numericLookingScalar, numericLookingScalar, (a, b) => {
+        fc.pre(a !== b);
+        const la = yaml.load(reconstructFrontmatter({ k: a }));
+        const lb = yaml.load(reconstructFrontmatter({ k: b }));
+        assert.equal(typeof la.k, 'string');
+        assert.equal(typeof lb.k, 'string');
+        assert.equal(la.k, a);
+        assert.equal(lb.k, b);
+        assert.notEqual(la.k, lb.k,
+          `distinct inputs collided after round-trip: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+      }),
+    );
+  });
+});
+
+// (h)(i) #1882 added an optional `sourcePath` argument to extractFrontmatter, used only to
 //     name and deduplicate a diagnostic. These two properties are what protect the ~50 call
 //     sites: whatever the argument does, it must never reach the parsed result, and the
 //     LF/CRLF equivalence the parser already promised must survive the new branch.
